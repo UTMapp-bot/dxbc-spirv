@@ -1901,6 +1901,11 @@ bool Instruction::write(util::ByteWriter& writer, const ShaderInfo& info) const 
   auto byteCount = writer.moveToEnd() - offset;
   token.setLength(byteCount / sizeof(uint32_t));
 
+  if (token.getLength() != byteCount / sizeof(uint32_t)) {
+    Logger::err("Instruction ", token.getOpCode(), " too long: ", byteCount / sizeof(uint32_t), " dwords");
+    return false;
+  }
+
   writer.moveTo(offset);
 
   if (!token.write(writer))
@@ -1932,6 +1937,28 @@ Parser::Parser(util::ByteReader reader) {
   /* Write back reader and shader parameters */
   m_reader = reader.getRange(sizeof(header), tokenSize);
   m_info = ShaderInfo(m_reader);
+}
+
+
+Parser Parser::fromTokens(util::ByteReader reader) {
+  Parser parser;
+
+  util::ByteReader infoReader = reader.getRangeRelative(0u, reader.getRemaining());
+  ShaderInfo info(infoReader);
+
+  if (!info)
+    return parser;
+
+  size_t tokenSize = info.getDwordCount() * sizeof(uint32_t);
+
+  if (reader.getRemaining() < tokenSize) {
+    Logger::err("Shader code too small, expected ", tokenSize, " bytes, got ", reader.getRemaining());
+    return parser;
+  }
+
+  parser.m_reader = reader.getRangeRelative(0u, tokenSize);
+  parser.m_info = ShaderInfo(parser.m_reader);
+  return parser;
 }
 
 

@@ -105,6 +105,14 @@ util::ByteReader Container::findChunk(util::FourCC tag) const {
 }
 
 
+util::ByteReader Container::getChunk(uint32_t index) const {
+  if (index >= m_chunks.size())
+    return util::ByteReader();
+
+  return m_reader.getRange(m_chunks[index].offset, m_chunks[index].size);
+}
+
+
 util::ByteReader Container::getInputSignatureChunk() const {
   auto chunk = findChunk(util::FourCC("ISG1"));
 

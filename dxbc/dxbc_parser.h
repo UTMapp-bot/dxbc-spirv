@@ -990,6 +990,13 @@ public:
     return m_token;
   }
 
+  /** Replaces opcode info. Useful to change a property of a parsed
+   *  instruction, e.g. an interpolation mode, and write it back. The
+   *  new token must be of an opcode with the same operand layout. */
+  void setOpToken(const OpToken& token) {
+    m_token = token;
+  }
+
   /** Retrieves number of destination operands */
   uint32_t getDstCount() const {
     return uint32_t(m_dstOperands.size());
@@ -1035,6 +1042,21 @@ public:
   const Operand& getRawOperand(uint32_t index) const {
     dxbc_spv_assert(index < m_operands.size());
     return m_operands[index];
+  }
+
+  /** Queries number of raw operands, including the
+   *  operands which are relative indices of others. */
+  uint32_t getRawOperandCount() const {
+    return uint32_t(m_operands.size());
+  }
+
+  /** Replaces a raw operand. The new operand must be of the same
+   *  kind, but can be of a different register type, e.g. to put a
+   *  constant in place of a register which a parsed instruction reads. */
+  void setRawOperand(uint32_t index, const Operand& operand) {
+    dxbc_spv_assert(index < m_operands.size());
+    dxbc_spv_assert(operand.getInfo().kind == m_operands[index].getInfo().kind);
+    m_operands[index] = operand;
   }
 
   /** Adds a raw operand and returns the absolute operand index.
@@ -1091,6 +1113,12 @@ public:
   Parser() = default;
 
   explicit Parser(util::ByteReader reader);
+
+  /** Creates a parser for code that is not inside a chunk: the
+   *  reader starts at the version token, followed by the length
+   *  token and the instructions. This is the form in which a
+   *  Direct3D driver receives shader code from the runtime. */
+  static Parser fromTokens(util::ByteReader reader);
 
   /** Queries shader info, including the shader type and version. This
    *  is always available since it is stored at the start of the chunk. */
