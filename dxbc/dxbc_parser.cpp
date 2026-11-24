@@ -1730,7 +1730,14 @@ Instruction::Instruction(util::ByteReader& reader, const ShaderInfo& info) {
   if (!token)
     return;
 
-  auto byteSize = token.getLength() * sizeof(uint32_t);
+  /* Checked before multiplying: a custom data length is a full dword,
+   * which would wrap with a 32-bit size_t */
+  if (token.getLength() > reader.getRemaining() / sizeof(uint32_t)) {
+    Logger::err("Instruction length ", token.getLength(), " out of range.");
+    return;
+  }
+
+  auto byteSize = size_t(token.getLength()) * sizeof(uint32_t);
 
   if (!byteSize) {
     Logger::err("Invalid instruction length:", token.getLength());
@@ -1929,7 +1936,12 @@ Parser::Parser(util::ByteReader reader) {
   ChunkHeader header(reader);
   ShaderInfo info(reader);
 
-  size_t tokenSize = info.getDwordCount() * sizeof(uint32_t);
+  if (info.getDwordCount() > header.size / sizeof(uint32_t)) {
+    Logger::err(header.tag, " chunk too small for ", info.getDwordCount(), " dwords, got ", header.size, " bytes");
+    return;
+  }
+
+  size_t tokenSize = size_t(info.getDwordCount()) * sizeof(uint32_t);
 
   if (header.size < tokenSize) {
     Logger::err(header.tag, " chunk too small, expected ", tokenSize, " bytes, got ", header.size);

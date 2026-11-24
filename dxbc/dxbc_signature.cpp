@@ -134,9 +134,28 @@ SignatureEntry::SignatureEntry(
 
   /* Read null-terminated name from given offset
    * and without disturbing the original reader */
+  if (nameOffset > reader.getSize() - std::min(reader.getSize(), sizeof(ChunkHeader))) {
+    resetOnError();
+    return;
+  }
+
   util::ByteReader nameReader = reader;
   nameReader.moveTo(nameOffset + sizeof(ChunkHeader));
-  nameReader.readString(m_semanticName);
+
+  /* Bounded: every entry copies its name, and in a damaged chunk any
+   * number of entries can name the same long string */
+  constexpr size_t MaxNameLength = 256u;
+  char ch = '\0';
+
+  while (nameReader.read(ch) && ch) {
+    if (m_semanticName.size() == MaxNameLength) {
+      resetOnError();
+      return;
+    }
+
+    m_semanticName.push_back(ch);
+  }
+
   m_semanticName.push_back('\0');
 
   if (!nameReader) {
@@ -283,7 +302,12 @@ Signature::Signature() {
 
 Signature::Signature(util::ByteReader reader) {
   ChunkHeader header(reader);
-  dxbc_spv_assert(header);
+
+  if (!header) {
+    Logger::err("Failed to read signature chunk header.");
+    resetOnError();
+    return;
+  }
 
   uint32_t entryCount = 0u;
   reader.read(entryCount);
@@ -298,7 +322,18 @@ Signature::Signature(util::ByteReader reader) {
     return;
   }
 
-  m_entries.reserve(entryCount);
+  /* The count is not to be trusted before the entries are read: an
+   * entry takes 24 bytes of what is left of the chunk, or more with a
+   * stream index and a minimum precision. */
+  const size_t entrySize = (6u + (signatureHasStreamIndex(header.tag) ? 1u : 0u) +
+    (signatureHasMinPrecision(header.tag) ? 1u : 0u)) * sizeof(uint32_t);
+
+  if (entryCount > reader.getRemaining() / entrySize) {
+    Logger::err("Signature has ", entryCount, " entries, but only ", reader.getRemaining(), " bytes.");
+
+    resetOnError();
+    return;
+  }
 
   for (uint32_t i = 0u; i < entryCount; i++) {
     SignatureEntry e(header.tag, reader);

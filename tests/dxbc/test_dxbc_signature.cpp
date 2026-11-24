@@ -830,6 +830,48 @@ void testDxbcSignatureRawTypes() {
 }
 
 
+void testDxbcContainerChunkSize() {
+  /* A chunk size close to 4 GiB must not pass for a small one where
+   * size_t has 32 bits; either way the container is not valid */
+  std::vector<unsigned char> binary(hs50, hs50 + sizeof(hs50));
+
+  uint32_t offset = 0u;
+
+  for (uint32_t i = 0u; i < 4u; i++)
+    offset |= uint32_t(binary[32u + i]) << (8u * i);
+
+  for (uint32_t size : { 0xfffffff8u, 0xfffffffcu, 0xffffffffu }) {
+    auto damaged = binary;
+
+    for (uint32_t i = 0u; i < 4u; i++)
+      damaged[offset + 4u + i] = uint8_t(size >> (8u * i));
+
+    ok(!Container(util::ByteReader(damaged.data(), damaged.size())));
+  }
+}
+
+
+void testDxbcSignatureEntryCount() {
+  /* An entry count which the chunk cannot hold is rejected
+   * before any memory is set aside for the entries */
+  Container container(util::ByteReader(hs50, sizeof(hs50)));
+  ok(bool(container));
+
+  auto chunk = readAll(container.getInputSignatureChunk());
+  ok(chunk.size() > 16u);
+  ok(bool(Signature(util::ByteReader(chunk.data(), chunk.size()))));
+
+  for (uint32_t count : { 0x40000000u, 0xffffffffu, uint32_t(chunk.size()) }) {
+    auto damaged = chunk;
+
+    for (uint32_t i = 0u; i < 4u; i++)
+      damaged[8u + i] = uint8_t(count >> (8u * i));
+
+    ok(!Signature(util::ByteReader(damaged.data(), damaged.size())));
+  }
+}
+
+
 void testDxbcParserFromTokens() {
   for (auto binary : { util::ByteReader(gs40, sizeof(gs40)), util::ByteReader(hs50, sizeof(hs50)) }) {
     Container container(binary);

@@ -220,7 +220,11 @@ bool Container::parseHeader() {
       return false;
     }
 
-    if (!m_reader.getRange(chunkOffset, chunkHeader.size + sizeof(chunkHeader))) {
+    /* Checked as a subtraction: with a 32-bit size_t, the sum of the
+     * chunk size and the header size can wrap around to a small number */
+    if (chunkOffset > m_header.fileSize ||
+        chunkHeader.size > m_reader.getSize() - chunkOffset - sizeof(chunkHeader) ||
+        chunkHeader.size > m_header.fileSize - chunkOffset - sizeof(chunkHeader)) {
       Logger::err("Chunk at offset ", chunkOffset, ", size ", chunkHeader.size, " out of range.");
       return false;
     }
