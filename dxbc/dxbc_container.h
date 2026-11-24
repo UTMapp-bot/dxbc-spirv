@@ -117,6 +117,15 @@ private:
 };
 
 
+/** Chunk whose payload is emitted as it is. The payload
+ *  does not include the chunk header. */
+struct RawChunk {
+  util::FourCC tag = { };
+  const void* data = nullptr;
+  size_t size = 0u;
+};
+
+
 /** Info for building DXBC containers with all
  *  the chunk types currently implemented. */
 struct ContainerInfo {
@@ -128,7 +137,17 @@ struct ContainerInfo {
   const Signature* outputSignature = nullptr;
   /** Code chunk */
   const Builder* code = nullptr;
+  /** Additional chunks, emitted after all of the above in the
+   *  order given. Useful to pass through an already encoded code
+   *  chunk, or chunks that this library does not know about. */
+  const RawChunk* rawChunks = nullptr;
+  size_t rawChunkCount = 0u;
 };
+
+
+/** Computes the hash that a container with the given contents
+ *  must carry in its header. The hash field itself is ignored. */
+util::md5::Digest hashDxbcBinary(const void* data, size_t size);
 
 
 /** Function to build a DXBC container. This will insert a header with a

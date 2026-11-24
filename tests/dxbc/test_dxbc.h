@@ -25,6 +25,10 @@ void testDxbcSignatureEncodeOsgn();
 void testDxbcSignatureEncodeOsg5();
 void testDxbcSignatureEncodeOsg1();
 void testDxbcHash();
+void testDxbcSignatureEncodeBytes();
+void testDxbcCodeEncodeBytes();
+void testDxbcInstructionEncodeBytes();
+void testDxbcBuildContainer();
 
 void runTests() {
   RUN_TEST(testDxbcTypeToIrType);
@@ -48,6 +52,10 @@ void runTests() {
   RUN_TEST(testDxbcSignatureEncodeOsg5);
   RUN_TEST(testDxbcSignatureEncodeOsg1);
   RUN_TEST(testDxbcHash);
+  RUN_TEST(testDxbcSignatureEncodeBytes);
+  RUN_TEST(testDxbcCodeEncodeBytes);
+  RUN_TEST(testDxbcInstructionEncodeBytes);
+  RUN_TEST(testDxbcBuildContainer);
 }
 
 }

@@ -270,6 +270,8 @@ bool buildContainer(util::ByteWriter& writer, const ContainerInfo& info) {
   if (info.code)
     header.chunkCount += 1u;
 
+  header.chunkCount += uint32_t(info.rawChunkCount);
+
   /* Emit dummy header */
   if (!emitHeader(writer, header, nullptr))
     return false;
@@ -297,6 +299,19 @@ bool buildContainer(util::ByteWriter& writer, const ContainerInfo& info) {
   if (info.code) {
     chunkOffsets.push_back(writer.moveToEnd() - headerOffset);
     result = result && info.code->write(writer);
+  }
+
+  for (size_t i = 0u; i < info.rawChunkCount && result; i++) {
+    const auto& chunk = info.rawChunks[i];
+
+    ChunkHeader chunkHeader = { };
+    chunkHeader.tag = chunk.tag;
+    chunkHeader.size = uint32_t(chunk.size);
+
+    chunkOffsets.push_back(writer.moveToEnd() - headerOffset);
+
+    result = chunkHeader.write(writer) && (!chunk.size ||
+      writer.write(chunk.size, reinterpret_cast<const unsigned char*>(chunk.data)));
   }
 
   if (!result)
