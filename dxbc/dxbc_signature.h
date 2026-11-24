@@ -75,6 +75,20 @@ public:
           SignatureSysval     systemValue,
           ir::ScalarType      scalarType);
 
+  /** Creates signature entry with the component type and minimum
+   *  precision as they are stored in the binary. Unlike a scalar
+   *  type, this can express any pair of the two, including the ones
+   *  which do not go together. */
+  SignatureEntry(
+    const char*               semanticName,
+          uint32_t            semanticIndex,
+          int32_t             registerIndex,
+          uint32_t            streamIndex,
+          uint32_t            componentMask,
+          SignatureSysval     systemValue,
+          ComponentType       componentType,
+          MinPrecision        minPrecision);
+
   ~SignatureEntry();
 
   /** Semantic name */
@@ -144,6 +158,17 @@ public:
     return m_scalarType;
   }
 
+  /** Queries component type as stored in the binary. */
+  ComponentType getComponentType() const {
+    return m_componentType;
+  }
+
+  /** Queries minimum precision as stored in the binary. This is
+   *  not necessarily one that fits the component type. */
+  MinPrecision getMinPrecision() const {
+    return m_minPrecision;
+  }
+
   /** Queries vector type including all vector components. */
   ir::BasicType getVectorType() const {
     return ir::BasicType(getScalarType(), computeComponentCount());
@@ -188,6 +213,8 @@ private:
   uint32_t                      m_componentMask = 0u;
   SignatureSysval               m_systemValue   = SignatureSysval::eNone;
   ir::ScalarType                m_scalarType    = ir::ScalarType::eUnknown;
+  ComponentType                 m_componentType = ComponentType::eVoid;
+  MinPrecision                  m_minPrecision  = MinPrecision::eNone;
 
   void resetOnError();
 
