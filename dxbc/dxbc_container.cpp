@@ -282,14 +282,16 @@ bool buildContainer(util::ByteWriter& writer, const ContainerInfo& info) {
     result = result && info.inputSignature->write(writer);
   }
 
-  if (info.patchSignature) {
-    chunkOffsets.push_back(writer.moveToEnd() - headerOffset);
-    result = result && info.patchSignature->write(writer);
-  }
-
   if (info.outputSignature) {
     chunkOffsets.push_back(writer.moveToEnd() - headerOffset);
     result = result && info.outputSignature->write(writer);
+  }
+
+  /* The patch constant signature follows the output signature
+   * in binaries produced by the HLSL compiler */
+  if (info.patchSignature) {
+    chunkOffsets.push_back(writer.moveToEnd() - headerOffset);
+    result = result && info.patchSignature->write(writer);
   }
 
   if (info.code) {
@@ -314,7 +316,7 @@ bool buildContainer(util::ByteWriter& writer, const ContainerInfo& info) {
   auto data = std::move(writer).extract();
   dxbc_spv_assert(data.size() == headerOffset + header.fileSize);
 
-  header.hash = util::md5::Hasher::compute(&data.at(headerOffset), header.fileSize);
+  header.hash = hashDxbcBinary(&data.at(headerOffset), header.fileSize);
 
   /* Re-emit header again, this time with the hash */
   writer = util::ByteWriter(std::move(data));

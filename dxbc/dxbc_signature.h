@@ -172,7 +172,7 @@ public:
   bool write(util::ByteWriter& writer, util::FourCC tag) const;
 
   /** Writes semantic to byte array and updates name offset. */
-  bool writeName(util::ByteWriter& writer, util::FourCC tag, size_t chunkOffset, size_t entryOffset) const;
+  bool writeName(util::ByteWriter& writer, util::FourCC tag, size_t chunkOffset, size_t entryOffset, size_t nameOffset) const;
 
   /** Checks whether signature element is valid */
   explicit operator bool () const {
