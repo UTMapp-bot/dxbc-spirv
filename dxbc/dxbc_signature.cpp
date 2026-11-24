@@ -1,4 +1,5 @@
 #include <sstream>
+#include <tuple>
 
 #include <cstring>
 
@@ -113,18 +114,15 @@ SignatureEntry::SignatureEntry(
   reader.read(m_semanticIndex);
   reader.read(m_systemValue);
 
-  ComponentType componentType = ComponentType::eVoid;
-  reader.read(componentType);
+  reader.read(m_componentType);
 
   reader.read(m_registerIndex);
   reader.read(m_componentMask);
 
   /* Precision seems to be encoded as a plain enum
    * value, no per-component shenanigans going on */
-  MinPrecision precision = MinPrecision::eNone;
-
   if (signatureHasMinPrecision(tag))
-    reader.read(precision);
+    reader.read(m_minPrecision);
 
   if (!reader) {
     resetOnError();
@@ -132,7 +130,7 @@ SignatureEntry::SignatureEntry(
   }
 
   /* Work out what the actual underlying data type is */
-  m_scalarType = resolveType(componentType, precision);
+  m_scalarType = resolveType(m_componentType, m_minPrecision);
 
   /* Read null-terminated name from given offset
    * and without disturbing the original reader */
@@ -162,6 +160,31 @@ SignatureEntry::SignatureEntry(
 , m_componentMask(componentMask)
 , m_systemValue(systemValue)
 , m_scalarType(scalarType) {
+  std::tie(m_componentType, m_minPrecision) = determineComponentType(scalarType);
+
+  for (size_t i = 0u; semanticName[i]; i++)
+    m_semanticName.push_back(semanticName[i]);
+  m_semanticName.push_back('\0');
+}
+
+
+SignatureEntry::SignatureEntry(
+  const char*               semanticName,
+        uint32_t            semanticIndex,
+        int32_t             registerIndex,
+        uint32_t            streamIndex,
+        uint32_t            componentMask,
+        SignatureSysval     systemValue,
+        ComponentType       componentType,
+        MinPrecision        minPrecision)
+: m_semanticIndex(semanticIndex)
+, m_registerIndex(registerIndex)
+, m_streamIndex(streamIndex)
+, m_componentMask(componentMask)
+, m_systemValue(systemValue)
+, m_scalarType(resolveType(componentType, minPrecision))
+, m_componentType(componentType)
+, m_minPrecision(minPrecision) {
   for (size_t i = 0u; semanticName[i]; i++)
     m_semanticName.push_back(semanticName[i]);
   m_semanticName.push_back('\0');
@@ -194,17 +217,15 @@ bool SignatureEntry::write(util::ByteWriter& writer, util::FourCC tag) const {
     result = result && writer.write(m_streamIndex);
 
   /* Insert dummy name offset for now */
-  auto [componentType, precision] = determineComponentType(m_scalarType);
-
   result = result && writer.write(0u) &&
                      writer.write(m_semanticIndex) &&
                      writer.write(m_systemValue) &&
-                     writer.write(componentType) &&
+                     writer.write(m_componentType) &&
                      writer.write(m_registerIndex) &&
                      writer.write(m_componentMask);
 
   if (signatureHasMinPrecision(tag))
-    result = result && writer.write(precision);
+    result = result && writer.write(m_minPrecision);
 
   return result;
 }

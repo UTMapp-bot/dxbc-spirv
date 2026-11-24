@@ -794,6 +794,42 @@ void testDxbcBuildContainer() {
   ok(readAll(rebuilt.getCodeChunk()) == code);
 }
 
+void testDxbcSignatureRawTypes() {
+  /* A component type and a minimum precision which do not go together are
+   * written as they were given, and read back as they were written */
+  Signature sig(util::FourCC("ISG1"));
+  sig.add(SignatureEntry("ATTRIB", 0u, 0, 0u, 0xf0fu, SignatureSysval::eNone, ComponentType::eFloat, MinPrecision::eMin16Sint));
+  sig.add(SignatureEntry("ATTRIB", 1u, 1, 0u, 0x303u, SignatureSysval::eNone, ComponentType::eSint, MinPrecision::eMin16Sint));
+  sig.add(SignatureEntry("ATTRIB", 2u, 2, 0u, 0x101u, SignatureSysval::eNone, ir::ScalarType::eMinF16));
+
+  util::ByteWriter wr;
+  ok(sig.write(wr));
+
+  auto bytes = std::move(wr).extract();
+
+  Signature parsed(util::ByteReader(bytes.data(), bytes.size()));
+  ok(bool(parsed));
+
+  auto e = parsed.begin();
+  ok(e->getComponentType() == ComponentType::eFloat);
+  ok(e->getMinPrecision() == MinPrecision::eMin16Sint);
+  ok(e->getScalarType() == ir::ScalarType::eF32);
+  e++;
+  ok(e->getComponentType() == ComponentType::eSint);
+  ok(e->getMinPrecision() == MinPrecision::eMin16Sint);
+  ok(e->getRawScalarType() == ir::ScalarType::eMinI16);
+  e++;
+  ok(e->getComponentType() == ComponentType::eFloat);
+  ok(e->getMinPrecision() == MinPrecision::eMin16Float);
+  ok(e->getRawScalarType() == ir::ScalarType::eMinF16);
+
+  /* Writing what was parsed gives the same bytes */
+  util::ByteWriter wr2;
+  ok(parsed.write(wr2));
+  ok(std::move(wr2).extract() == bytes);
+}
+
+
 void testDxbcParserFromTokens() {
   for (auto binary : { util::ByteReader(gs40, sizeof(gs40)), util::ByteReader(hs50, sizeof(hs50)) }) {
     Container container(binary);

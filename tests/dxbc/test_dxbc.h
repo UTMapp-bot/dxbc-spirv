@@ -29,6 +29,7 @@ void testDxbcSignatureEncodeBytes();
 void testDxbcCodeEncodeBytes();
 void testDxbcInstructionEncodeBytes();
 void testDxbcBuildContainer();
+void testDxbcSignatureRawTypes();
 void testDxbcParserFromTokens();
 void testDxbcInstructionEdit();
 void testDxbcContainerChunks();
@@ -59,6 +60,7 @@ void runTests() {
   RUN_TEST(testDxbcCodeEncodeBytes);
   RUN_TEST(testDxbcInstructionEncodeBytes);
   RUN_TEST(testDxbcBuildContainer);
+  RUN_TEST(testDxbcSignatureRawTypes);
   RUN_TEST(testDxbcParserFromTokens);
   RUN_TEST(testDxbcInstructionEdit);
   RUN_TEST(testDxbcContainerChunks);
