@@ -1,8 +1,10 @@
 #include "../../dxbc/dxbc_container.h"
+#include "../../dxbc/dxbc_parser.h"
 #include "../../dxbc/dxbc_signature.h"
 
 #include "../test_common.h"
 
+#include <cstring>
 #include <vector>
 
 namespace dxbc_spv::tests::dxbc {
@@ -616,6 +618,180 @@ void testDxbcHash() {
   ok(Container(util::ByteReader(gs50, sizeof(gs50))).validateHash());
   ok(Container(util::ByteReader(hs50, sizeof(hs50))).validateHash());
   ok(Container(util::ByteReader(hs51, sizeof(hs51))).validateHash());
+}
+
+
+static std::vector<unsigned char> readAll(util::ByteReader reader) {
+  std::vector<unsigned char> bytes(reader.getRemaining());
+
+  if (!bytes.empty())
+    reader.read(bytes.size(), bytes.data());
+
+  return bytes;
+}
+
+
+static void testSignatureBytes(util::ByteReader chunk) {
+  auto expected = readAll(chunk);
+
+  if (expected.empty())
+    return;
+
+  Signature sig(chunk);
+  ok(bool(sig));
+
+  util::ByteWriter wr;
+  ok(sig.write(wr));
+
+  /* Names shared between entries and padding included */
+  ok(std::move(wr).extract() == expected);
+}
+
+
+void testDxbcSignatureEncodeBytes() {
+  for (auto binary : { util::ByteReader(gs40, sizeof(gs40)), util::ByteReader(gs50, sizeof(gs50)),
+                       util::ByteReader(hs50, sizeof(hs50)), util::ByteReader(hs51, sizeof(hs51)) }) {
+    Container container(binary);
+    ok(bool(container));
+
+    testSignatureBytes(container.getInputSignatureChunk());
+    testSignatureBytes(container.getOutputSignatureChunk());
+    testSignatureBytes(container.getPatchConstantSignatureChunk());
+  }
+}
+
+
+void testDxbcCodeEncodeBytes() {
+  for (auto binary : { util::ByteReader(gs40, sizeof(gs40)), util::ByteReader(gs50, sizeof(gs50)),
+                       util::ByteReader(hs50, sizeof(hs50)), util::ByteReader(hs51, sizeof(hs51)) }) {
+    Container container(binary);
+    ok(bool(container));
+
+    auto expected = readAll(container.getCodeChunk());
+
+    Parser parser(container.getCodeChunk());
+    auto info = parser.getShaderInfo();
+
+    Builder builder(info.getType(), info.getVersion().first, info.getVersion().second);
+
+    size_t remaining = parser.getRemainingByteCount();
+
+    while (parser) {
+      auto ins = parser.parseInstruction();
+      ok(bool(ins));
+
+      if (!ins)
+        break;
+
+      /* The parser makes progress and reports it */
+      ok(parser.getRemainingByteCount() < remaining);
+      remaining = parser.getRemainingByteCount();
+
+      builder.add(std::move(ins));
+    }
+
+    util::ByteWriter wr;
+    ok(builder.write(wr));
+    ok(std::move(wr).extract() == expected);
+  }
+}
+
+
+static void testInstructionBytes(uint32_t version, std::initializer_list<uint32_t> tokens) {
+  /* Shader header followed by a single instruction */
+  std::vector<unsigned char> code;
+
+  auto push = [&code] (uint32_t dw) {
+    for (uint32_t i = 0u; i < sizeof(dw); i++)
+      code.push_back(uint8_t(dw >> (8u * i)));
+  };
+
+  push(version);
+  push(uint32_t(tokens.size() + 2u));
+
+  for (auto dw : tokens)
+    push(dw);
+
+  util::ByteReader reader(code.data(), code.size());
+  ShaderInfo info(reader);
+
+  Instruction ins(reader, info);
+  ok(bool(ins));
+  ok(!reader.getRemaining());
+
+  util::ByteWriter wr;
+  ok(ins.write(wr, info));
+
+  auto encoded = std::move(wr).extract();
+
+  ok(encoded.size() == tokens.size() * sizeof(uint32_t));
+  ok(encoded.size() + 2u * sizeof(uint32_t) == code.size() &&
+    !std::memcmp(encoded.data(), code.data() + 2u * sizeof(uint32_t), encoded.size()));
+}
+
+
+void testDxbcInstructionEncodeBytes() {
+  /* mov r0.x, l(4): immediate operands carry their value */
+  testInstructionBytes(0x00020040u, { 0x05000036u, 0x00100012u, 0x00000000u, 0x00004001u, 0x00000004u });
+
+  /* mad with two four-component immediates */
+  testInstructionBytes(0x00010040u, { 0x0f000032u, 0x00102032u, 0x00000000u, 0x00100046u, 0x00000000u,
+    0x00004002u, 0x40000000u, 0xc0000000u, 0x00000000u, 0x00000000u,
+    0x00004002u, 0xbf800000u, 0x3f800000u, 0x00000000u, 0x00000000u });
+
+  /* dcl_function_body, dcl_function_table and dcl_interface carry raw dwords */
+  testInstructionBytes(0x00020050u, { 0x0300008fu, 0x00110000u, 0x00000000u });
+  testInstructionBytes(0x00020050u, { 0x04000091u, 0x00000000u, 0x00000001u, 0x00000000u });
+  testInstructionBytes(0x00020050u, { 0x08000892u, 0x00000000u, 0x00000001u, 0x00fd0004u,
+    0x00000000u, 0x00000001u, 0x00000002u, 0x00000003u });
+
+  /* sample_b with a sample control token whose offsets are all zero */
+  testInstructionBytes(0x00000050u, { 0x8e00004au, 0x80000001u, 0x80000082u, 0x00155543u,
+    0x001020f2u, 0x00000000u, 0x0010001au, 0x00000000u, 0x00107e46u, 0x00000000u,
+    0x00106000u, 0x00000000u, 0x0010000au, 0x00000000u });
+}
+
+
+void testDxbcBuildContainer() {
+  Container container(util::ByteReader(hs50, sizeof(hs50)));
+  ok(bool(container));
+
+  Signature isgn(container.getInputSignatureChunk());
+  Signature osgn(container.getOutputSignatureChunk());
+  Signature pcsg(container.getPatchConstantSignatureChunk());
+
+  /* Pass the code chunk through as it is, without its chunk header */
+  auto code = readAll(container.getCodeChunk());
+  ok(code.size() > 8u);
+
+  RawChunk raw = { };
+  raw.tag = util::FourCC(char(code[0]), char(code[1]), char(code[2]), char(code[3]));
+  raw.data = code.data() + 8u;
+  raw.size = code.size() - 8u;
+
+  ContainerInfo info = { };
+  info.inputSignature = &isgn;
+  info.outputSignature = &osgn;
+  info.patchSignature = &pcsg;
+  info.rawChunks = &raw;
+  info.rawChunkCount = 1u;
+
+  util::ByteWriter wr;
+  ok(buildContainer(wr, info));
+
+  auto binary = std::move(wr).extract();
+
+  Container rebuilt(util::ByteReader(binary.data(), binary.size()));
+  ok(bool(rebuilt));
+
+  /* The hash is the one a container with these contents carries */
+  ok(rebuilt.validateHash());
+  ok(rebuilt.getHash() == hashDxbcBinary(binary.data(), binary.size()));
+
+  ok(readAll(rebuilt.getInputSignatureChunk()) == readAll(container.getInputSignatureChunk()));
+  ok(readAll(rebuilt.getOutputSignatureChunk()) == readAll(container.getOutputSignatureChunk()));
+  ok(readAll(rebuilt.getPatchConstantSignatureChunk()) == readAll(container.getPatchConstantSignatureChunk()));
+  ok(readAll(rebuilt.getCodeChunk()) == code);
 }
 
 }

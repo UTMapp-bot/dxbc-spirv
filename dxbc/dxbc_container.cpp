@@ -270,6 +270,23 @@ bool buildContainer(util::ByteWriter& writer, const ContainerInfo& info) {
   if (info.code)
     header.chunkCount += 1u;
 
+  /* Raw chunks: sizes must fit the chunk header, and there must be
+   * something to copy */
+  if (info.rawChunkCount && !info.rawChunks)
+    return false;
+
+  if (info.rawChunkCount > uint32_t(-1) - header.chunkCount)
+    return false;
+
+  for (size_t i = 0u; i < info.rawChunkCount; i++) {
+    const auto& chunk = info.rawChunks[i];
+
+    if (chunk.size > uint32_t(-1) - 3u || (chunk.size && !chunk.data))
+      return false;
+  }
+
+  header.chunkCount += uint32_t(info.rawChunkCount);
+
   /* Emit dummy header */
   if (!emitHeader(writer, header, nullptr))
     return false;
@@ -297,6 +314,23 @@ bool buildContainer(util::ByteWriter& writer, const ContainerInfo& info) {
   if (info.code) {
     chunkOffsets.push_back(writer.moveToEnd() - headerOffset);
     result = result && info.code->write(writer);
+  }
+
+  for (size_t i = 0u; i < info.rawChunkCount && result; i++) {
+    const auto& chunk = info.rawChunks[i];
+
+    ChunkHeader chunkHeader = { };
+    chunkHeader.tag = chunk.tag;
+    chunkHeader.size = uint32_t(chunk.size);
+
+    chunkOffsets.push_back(writer.moveToEnd() - headerOffset);
+
+    result = chunkHeader.write(writer) && (!chunk.size ||
+      writer.write(chunk.size, reinterpret_cast<const unsigned char*>(chunk.data)));
+
+    /* Keep the next chunk dword-aligned */
+    for (size_t j = chunk.size; result && (j & 3u); j++)
+      result = writer.write(uint8_t(0u));
   }
 
   if (!result)

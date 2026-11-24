@@ -1102,6 +1102,13 @@ public:
    *  if parsing has reached the end of the chunk, or if parsing fails. */
   Instruction parseInstruction();
 
+  /** Queries the number of bytes of the code chunk that have not
+   *  been parsed yet. The difference between two calls around
+   *  parseInstruction is the encoded size of that instruction. */
+  size_t getRemainingByteCount() const {
+    return m_reader.getRemaining();
+  }
+
   /** Checks whether any more instructions are
    *  available to be parsed. */
   explicit operator bool () const {
