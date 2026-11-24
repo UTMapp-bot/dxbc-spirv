@@ -275,6 +275,17 @@ Signature::Signature(util::ByteReader reader) {
     return;
   }
 
+  /* The count is not to be trusted before the entries are read: an
+   * entry takes at least 24 bytes of what is left of the chunk. */
+  constexpr size_t MinEntrySize = 6u * sizeof(uint32_t);
+
+  if (entryCount > reader.getRemaining() / MinEntrySize) {
+    Logger::err("Signature has ", entryCount, " entries, but only ", reader.getRemaining(), " bytes.");
+
+    resetOnError();
+    return;
+  }
+
   m_entries.reserve(entryCount);
 
   for (uint32_t i = 0u; i < entryCount; i++) {
