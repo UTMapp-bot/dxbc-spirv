@@ -1340,6 +1340,7 @@ OpToken::OpToken(util::ByteReader& reader) {
       switch (kind) {
         case ExtendedOpcodeType::eSampleControls:
           m_sampleControls = SampleControlToken(data);
+          m_hasNullSampleControls = !m_sampleControls;
           break;
 
         case ExtendedOpcodeType::eResourceDim:
@@ -1364,7 +1365,7 @@ bool OpToken::write(util::ByteWriter& writer) const {
   tokens.push_back(m_token);
 
   /* Set extended tokens */
-  if (m_sampleControls)
+  if (m_sampleControls || m_hasNullSampleControls)
     tokens.push_back(m_sampleControls.asToken());
 
   if (m_resourceDim)
@@ -1633,7 +1634,7 @@ Operand& Operand::addIndex(uint32_t absolute, uint32_t relative) {
 
 
 bool Operand::write(util::ByteWriter& writer, const Instruction& op) const {
-  if (m_info.kind == OperandKind::eImm32) {
+  if (m_info.kind == OperandKind::eImm32 || m_info.kind == OperandKind::eExtra) {
     /* Write a single dword */
     dxbc_spv_assert(getRegisterType() == RegisterType::eImm32);
 
@@ -1651,6 +1652,33 @@ bool Operand::write(util::ByteWriter& writer, const Instruction& op) const {
     for (const auto& e : tokens) {
       if (!writer.write(e))
         return false;
+    }
+
+    /* Emit immediate values, same layout as the parser reads */
+    auto type = getRegisterType();
+
+    if (type == RegisterType::eImm32 || type == RegisterType::eImm64) {
+      uint32_t dwordCount = 0u;
+
+      switch (getComponentCount()) {
+        case ComponentCount::e1Component:
+          dwordCount = type == RegisterType::eImm64 ? 2u : 1u;
+          break;
+
+        case ComponentCount::e4Component:
+          dwordCount = 4u;
+          break;
+
+        default:
+          break;
+      }
+
+      for (uint32_t i = 0u; i < dwordCount; i++) {
+        if (!writer.write(m_imm[i]))
+          return false;
+      }
+
+      return true;
     }
 
     /* Emit index operands */

@@ -1,5 +1,7 @@
 #include <sstream>
 
+#include <cstring>
+
 #include "dxbc_container.h"
 #include "dxbc_signature.h"
 
@@ -208,11 +210,12 @@ bool SignatureEntry::write(util::ByteWriter& writer, util::FourCC tag) const {
 }
 
 
-bool SignatureEntry::writeName(util::ByteWriter& writer, util::FourCC tag, size_t chunkOffset, size_t entryOffset) const {
-  auto nameOffset = writer.moveToEnd();
-
-  if (!writer.write(m_semanticName.size(), m_semanticName.data()))
-    return false;
+bool SignatureEntry::writeName(util::ByteWriter& writer, util::FourCC tag, size_t chunkOffset, size_t entryOffset, size_t nameOffset) const {
+  /* Only emit the string if it is not there already */
+  if (nameOffset == writer.moveToEnd()) {
+    if (!writer.write(m_semanticName.size(), m_semanticName.data()))
+      return false;
+  }
 
   if (signatureHasStreamIndex(tag))
     entryOffset += sizeof(m_streamIndex);
@@ -313,11 +316,30 @@ bool Signature::write(util::ByteWriter& writer) const {
       return false;
   }
 
-  /* Write out semantic names */
-  size_t index = 0u;
+  /* Write out semantic names. Entries with the same
+   * name share one copy of the string. */
+  util::small_vector<size_t, EntryList::EmbeddedCapacity> nameOffsets;
 
-  for (const auto& e : m_entries) {
-    if (!e.writeName(writer, m_tag, dataOffset, entryOffsets[index++]))
+  for (size_t i = 0u; i < m_entries.size(); i++) {
+    size_t nameOffset = 0u;
+
+    for (size_t j = 0u; j < i && !nameOffset; j++) {
+      if (!std::strcmp(m_entries[i].getSemanticName(), m_entries[j].getSemanticName()))
+        nameOffset = nameOffsets[j];
+    }
+
+    if (!nameOffset)
+      nameOffset = writer.moveToEnd();
+
+    nameOffsets.push_back(nameOffset);
+
+    if (!m_entries[i].writeName(writer, m_tag, dataOffset, entryOffsets[i], nameOffset))
+      return false;
+  }
+
+  /* Pad the chunk to a multiple of four bytes */
+  while ((writer.moveToEnd() - dataOffset) % sizeof(uint32_t)) {
+    if (!writer.write(uint8_t(0xabu)))
       return false;
   }
 

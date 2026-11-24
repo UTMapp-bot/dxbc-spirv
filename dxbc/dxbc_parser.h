@@ -568,6 +568,7 @@ public:
 
   OpToken& setSampleControlToken(SampleControlToken controls) {
     m_sampleControls = controls;
+    m_hasNullSampleControls = false;
     return *this;
   }
 
@@ -616,6 +617,10 @@ private:
   SampleControlToken    m_sampleControls = { };
   ResourceDimToken      m_resourceDim = { };
   ResourceTypeToken     m_resourceType = { };
+
+  /* Set when the binary carried a sample control token with all-zero
+   * offsets, so that writing the instruction back reproduces it. */
+  bool                  m_hasNullSampleControls = false;
 
   void resetOnError();
 

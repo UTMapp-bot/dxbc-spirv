@@ -120,13 +120,13 @@ private:
 /** Info for building DXBC containers with all
  *  the chunk types currently implemented. */
 struct ContainerInfo {
-  /** Input signature, not optional */
+  /** Input signature */
   const Signature* inputSignature = nullptr;
   /** Patch constant signature for tessellation shaders */
   const Signature* patchSignature = nullptr;
-  /** Output signature, not optional */
+  /** Output signature */
   const Signature* outputSignature = nullptr;
-  /** Code chunk, not optional */
+  /** Code chunk */
   const Builder* code = nullptr;
 };
 
