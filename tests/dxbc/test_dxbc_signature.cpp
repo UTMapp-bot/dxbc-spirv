@@ -794,4 +794,163 @@ void testDxbcBuildContainer() {
   ok(readAll(rebuilt.getCodeChunk()) == code);
 }
 
+void testDxbcParserFromTokens() {
+  for (auto binary : { util::ByteReader(gs40, sizeof(gs40)), util::ByteReader(hs50, sizeof(hs50)) }) {
+    Container container(binary);
+    ok(bool(container));
+
+    /* Code as a driver gets it: the chunk without its header */
+    auto chunk = readAll(container.getCodeChunk());
+    ok(chunk.size() > 8u);
+
+    Parser a(container.getCodeChunk());
+    Parser b = Parser::fromTokens(util::ByteReader(chunk.data() + 8u, chunk.size() - 8u));
+
+    ok(bool(b));
+    ok(a.getRemainingByteCount() == b.getRemainingByteCount());
+    ok(a.getShaderInfo().getType() == b.getShaderInfo().getType());
+    ok(a.getShaderInfo().getVersion() == b.getShaderInfo().getVersion());
+
+    while (a && b) {
+      auto ia = a.parseInstruction();
+      auto ib = b.parseInstruction();
+
+      ok(bool(ia) && bool(ib));
+
+      if (!ia || !ib)
+        break;
+
+      util::ByteWriter wa, wb;
+      ok(ia.write(wa, a.getShaderInfo()));
+      ok(ib.write(wb, b.getShaderInfo()));
+      ok(std::move(wa).extract() == std::move(wb).extract());
+    }
+
+    ok(!a && !b);
+
+    /* Bytes after the declared length are not instructions */
+    auto padded = chunk;
+    padded.resize(padded.size() + 16u, 0xffu);
+
+    Parser c = Parser::fromTokens(util::ByteReader(padded.data() + 8u, padded.size() - 8u));
+    ok(c.getRemainingByteCount() == Parser(container.getCodeChunk()).getRemainingByteCount());
+
+    /* A length that runs past the end is rejected */
+    Parser d = Parser::fromTokens(util::ByteReader(chunk.data() + 8u, chunk.size() - 12u));
+    ok(!d);
+
+    Parser e = Parser::fromTokens(util::ByteReader(chunk.data() + 8u, 4u));
+    ok(!e);
+  }
+}
+
+
+static std::vector<unsigned char> encodeTokens(std::initializer_list<uint32_t> tokens) {
+  std::vector<unsigned char> code;
+
+  for (auto dw : tokens) {
+    for (uint32_t i = 0u; i < sizeof(dw); i++)
+      code.push_back(uint8_t(dw >> (8u * i)));
+  }
+
+  return code;
+}
+
+
+void testDxbcInstructionEdit() {
+  /* and r0.x, vCoverage, l(1): a constant in place of the register */
+  auto code = encodeTokens({ 0x00000050u, 0x00000008u,
+    0x06000001u, 0x00100012u, 0x00000000u, 0x00023001u, 0x00004001u, 0x00000001u });
+
+  Parser parser = Parser::fromTokens(util::ByteReader(code.data(), code.size()));
+  ok(bool(parser));
+
+  auto ins = parser.parseInstruction();
+  ok(bool(ins));
+  ok(ins.getRawOperandCount() == 3u);
+  ok(ins.getSrc(0u).getRegisterType() == RegisterType::eCoverageIn);
+
+  for (uint32_t i = 0u; i < ins.getRawOperandCount(); i++) {
+    const auto& operand = ins.getRawOperand(i);
+
+    if (operand.getRegisterType() == RegisterType::eCoverageIn) {
+      Operand imm(operand.getInfo(), RegisterType::eImm32, ComponentCount::e1Component);
+      imm.setImmediate(0u, uint32_t(0xfu));
+      ins.setRawOperand(i, imm);
+    }
+  }
+
+  util::ByteWriter wr;
+  ok(ins.write(wr, parser.getShaderInfo()));
+
+  ok(std::move(wr).extract() == encodeTokens({
+    0x07000001u, 0x00100012u, 0x00000000u, 0x00004001u, 0x0000000fu, 0x00004001u, 0x00000001u }));
+
+  /* An instruction which no longer fits the length field is not written */
+  for (uint32_t count : { 126u, 127u }) {
+    Instruction big(OpCode::eBreak);
+
+    for (uint32_t i = 0u; i < count; i++)
+      big.addOperand(Operand({ OperandKind::eExtra, ir::ScalarType::eU32 }, RegisterType::eImm32, ComponentCount::e1Component));
+
+    wr = util::ByteWriter();
+    ok(big.write(wr, parser.getShaderInfo()) == (count == 126u));
+  }
+
+  /* dcl_input_ps linear noperspective v1.xy: another interpolation mode */
+  code = encodeTokens({ 0x00000050u, 0x00000005u, 0x03002062u, 0x00101032u, 0x00000001u });
+
+  parser = Parser::fromTokens(util::ByteReader(code.data(), code.size()));
+  ok(bool(parser));
+
+  ins = parser.parseInstruction();
+  ok(bool(ins));
+  ok(ins.getOpToken().getInterpolationMode() == InterpolationMode::eLinearNoPerspective);
+
+  auto token = ins.getOpToken();
+  token.setInterpolationMode(InterpolationMode::eLinear);
+  ins.setOpToken(token);
+
+  wr = util::ByteWriter();
+  ok(ins.write(wr, parser.getShaderInfo()));
+  ok(std::move(wr).extract() == encodeTokens({ 0x03001062u, 0x00101032u, 0x00000001u }));
+}
+
+
+void testDxbcContainerChunks() {
+  Container container(util::ByteReader(hs50, sizeof(hs50)));
+  ok(bool(container));
+  ok(container.getChunkCount() >= 4u);
+
+  /* Rebuild from the chunks alone, in their order */
+  std::vector<std::vector<unsigned char>> chunks;
+  std::vector<RawChunk> raw;
+
+  for (uint32_t i = 0u; i < container.getChunkCount(); i++) {
+    chunks.push_back(readAll(container.getChunk(i)));
+    ok(chunks.back().size() >= 8u);
+    ok(chunks.back() == readAll(container.findChunk(container.getChunkTag(i))));
+  }
+
+  for (uint32_t i = 0u; i < container.getChunkCount(); i++) {
+    auto& e = raw.emplace_back();
+    e.tag = container.getChunkTag(i);
+    e.data = chunks[i].data() + 8u;
+    e.size = chunks[i].size() - 8u;
+  }
+
+  ok(!container.getChunk(container.getChunkCount()));
+
+  ContainerInfo info = { };
+  info.rawChunks = raw.data();
+  info.rawChunkCount = raw.size();
+
+  util::ByteWriter wr;
+  ok(buildContainer(wr, info));
+
+  /* The same chunks in the same order are the same file, hash included */
+  auto binary = std::move(wr).extract();
+  ok(binary.size() == sizeof(hs50) && !std::memcmp(binary.data(), hs50, sizeof(hs50)));
+}
+
 }

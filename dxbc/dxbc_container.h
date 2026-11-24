@@ -72,6 +72,23 @@ public:
    *  byte reader covering the chunk's memory region, if any. */
   util::ByteReader findChunk(util::FourCC tag) const;
 
+  /** Queries the number of chunks in the container. */
+  uint32_t getChunkCount() const {
+    return uint32_t(m_chunks.size());
+  }
+
+  /** Queries the four-character code of a chunk. Chunks
+   *  are numbered in the order of the container. */
+  util::FourCC getChunkTag(uint32_t index) const {
+    return index < m_chunks.size() ? m_chunks[index].tag : util::FourCC();
+  }
+
+  /** Returns a byte reader covering the memory region of a chunk,
+   *  in the same way as findChunk does. Together with getChunkTag,
+   *  this allows to rebuild a container with some chunks changed
+   *  and all others, known or not, passed through. */
+  util::ByteReader getChunk(uint32_t index) const;
+
   /** Finds input signature chunk */
   util::ByteReader getInputSignatureChunk() const;
 

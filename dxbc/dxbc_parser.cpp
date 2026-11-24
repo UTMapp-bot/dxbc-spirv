@@ -1903,6 +1903,11 @@ bool Instruction::write(util::ByteWriter& writer, const ShaderInfo& info) const 
   auto byteCount = writer.moveToEnd() - offset;
   token.setLength(byteCount / sizeof(uint32_t));
 
+  if (token.getLength() != byteCount / sizeof(uint32_t)) {
+    Logger::err("Instruction ", token.getOpCode(), " too long: ", byteCount / sizeof(uint32_t), " dwords");
+    return false;
+  }
+
   writer.moveTo(offset);
 
   if (!token.write(writer))
@@ -1934,6 +1939,43 @@ Parser::Parser(util::ByteReader reader) {
   /* Write back reader and shader parameters */
   m_reader = reader.getRange(sizeof(header), tokenSize);
   m_info = ShaderInfo(m_reader);
+}
+
+
+Parser Parser::fromTokens(util::ByteReader reader) {
+  Parser parser;
+
+  util::ByteReader infoReader = reader.getRangeRelative(0u, reader.getRemaining());
+  ShaderInfo info(infoReader);
+
+  if (!info)
+    return parser;
+
+  /* Bare tokens come without a chunk tag, so check that this is
+   * shader model 4 or 5 code at all */
+  auto [major, minor] = info.getVersion();
+
+  if (uint32_t(info.getType()) > uint32_t(ShaderType::eCompute) ||
+      major < 4u || major > 5u) {
+    Logger::err("Not SM4 or SM5 shader code: ", uint32_t(info.getType()), " ", major, ".", minor);
+    return parser;
+  }
+
+  if (info.getDwordCount() > reader.getRemaining() / sizeof(uint32_t)) {
+    Logger::err("Shader code too small, expected ", info.getDwordCount(), " dwords, got ", reader.getRemaining(), " bytes");
+    return parser;
+  }
+
+  size_t tokenSize = size_t(info.getDwordCount()) * sizeof(uint32_t);
+
+  if (reader.getRemaining() < tokenSize) {
+    Logger::err("Shader code too small, expected ", tokenSize, " bytes, got ", reader.getRemaining());
+    return parser;
+  }
+
+  parser.m_reader = reader.getRangeRelative(0u, tokenSize);
+  parser.m_info = ShaderInfo(parser.m_reader);
+  return parser;
 }
 
 
